@@ -6,6 +6,7 @@ import json
 import snap
 import math
 import sets
+import collections
 
 def get_coinbase_page(page_no, prices):
     print("here")
@@ -31,51 +32,31 @@ def store_prices(prices):
     f.write(json.dumps(prices))
     f.close()
 
-def read_prices():
-    f = open("prices.json", "r")
-    prices = json.loads(f.read())
-    f.close()
+def get_prices_json(filename):
+    with open(filename, "r") as f:
+        prices = json.loads(f.read())
     return prices
 
-
-def read_edges():
-    blocks = {}
-    index = 1
-    blocks[index] = []
-    seen_blocks = set()
-    for line in open("user_edges.txt", "r"):
-        ID, src, dst, time, value = [i.strip() for i in line.split(',')]
-        if time not in seen_blocks:
-            seen_blocks.update([time])
-            if len(seen_blocks)%1000 == 0:
-                index += 1
-                blocks[index] = []
-            if len(seen_blocks)%20000 == 0:
-                return blocks
-                print len(blocks)
-        blocks[index].append((src, dst, value))
-    
-def plot_prices(prices, blocks):
-    xy = [(x,y) for (x,y) in sorted(prices.iteritems())][::50]   
-    g = Gnuplot.Gnuplot(persist=1)
-    #g('set logscale y')
-    g('set pointsize 0.1')
-    d1 = Gnuplot.Data(xy, with_='lp',title='Graph1') 
-    #d2 = Gnuplot.Data(blocks, with_='lp',title='Graph1') 
-    g.plot(d1)
-
-
+def get_blockchain_json(filename):
+    with open(filename, 'r') as f:
+        blockchain = json.loads(f.read())
+    return blockchain
 
 def add_to_network(n, block):
     # decode block
     for tx in block:
-        if not n.IsNode(int(tx[0])):
-            n.AddNode(int(tx[0]))
-        if not n.IsNode(int(tx[1])):
-            n.AddNode(int(tx[1]))
-        n.AddEdge(int(tx[0]), int(tx[1]))
+        transaction = tx.split('=')
+        value = transaction[1]
+        parties = transaction[0].split(':')
+        outtx = int(parties[0])
+        intx = int(parties[1])
+        if not n.IsNode(intx):
+            n.AddNode(intx)
+        if not n.IsNode(outtx):
+            n.AddNode(outtx)
+        aux = n.AddEdge(inttx, outtx)
+        n.AddIntAttrDatE(aux, value, 'value')
 
-    
 def get_alphas(n):
     indegpairs = snap.TIntPrV()
     outdegpairs = snap.TIntPrV()
@@ -96,64 +77,114 @@ def get_alphas(n):
     alphaout = 1 + totalout*1.0/sum(math.log(pair.GetVal1())*pair.GetVal2() for pair in outdegpairs)
     return (alphain, alphaout)
     
-def compute_properties(feature_set, n):
+def network_properties(n):
+    feature_set = collections.Counter()
     # Avg Clust Coeff
-    feature_set.append(snap.GetClustCf(n, -1))
+    feature_set['clustering coefficient'] = snap.GetClustCf(n, -1)
     # Diam
-    feature_set.append(snap.GetBfsFullDiam(n, 20))
+    feature_set['diameter'] = snap.GetBfsFullDiam(n, n.GetNodes()/10)
     # Size Nodes
-    feature_set.append(n.GetNodes())
+    feature_set['nodes'] = n.GetNodes()
     # Size Wcc
-    feature_set.append(snap.GetMxWcc(n).GetNodes())
+    feature_set['max wcc'] = snap.GetMxWcc(n).GetNodes()
     # MLE
     alphas = get_alphas(n)
-    feature_set.append(alphas[0])
-    feature_set.append(alphas[1])
-   
+    feature_set['in alpha'] = alphas[0]
+    feature_set['out alpha'] = alphas[1]
+    # Avg Tx value
+    feature_set['avg tx value'] = sum(n.GetIntAttrE(e, 'value') for e in range(n.GetEdges()))*1.0/n.GetEdges()
+    return feature_set
   
-def main():
-    page_no = 1
-    prices = {}
+def SGD(eta, numIters, examples):
 
-    prices = read_prices()
-    blocks = read_edges()
-    blocks2 = [(k, len(v)) for (k,v) in blocks.iteritems()]
-    plot_prices(prices, blocks)
-    quit()
+    def dotProduct(d1, d2):
+        if len(d1) < len(d2):
+            return dotProduct(d2, d1)
+        else:
+            return sum(d1.get(f, 0) * v for f, v in d2.items())
 
-    blockchain = blocks 
-    outfile = "info"
-    #N = snap.TNGraph(snap.PNGraph) # whatever
-    N = snap.GenRndGnm(snap.PNGraph, 1, 0)
-    N.DelNode(0)
-    M = {}
-    for block in blockchain:
-        feature_set = []
-        add_to_network(N, blockchain[block])
-        compute_properties(feature_set, N)
-        M[block] = feature_set
-   
-    for entry in M:
-        for i in range(len(M[entry])):
-            with open(outfile + '_' + str(i) + ".out", "a+") as f:
-                f.write(str(entry) + '\t' + str(M[entry][i]) + '\n')
-                #Fin de la conversacion
-   
-    #xy = [(x,y) for (x,y) in sorted(prices.iteritems())][::50]   
+    def increment(d1, scale, d2):
+        for f, v in d2.items():
+            d1[f] = d1.get(f, 0) + v * scale
+
+    def dirLoss(features, y):
+        dot_product = dotProduct(weights, features)
+        residual = 2 * (dot_product - y)
+        new_features = collections.Counter()
+        for feature in features:
+            new_features[feature] = float(features[feature]) * float(residual)
+        return new_features    
+
+    weights = collections.Counter()
+    for i in range(numIters):
+        for entry in examples:
+            y = examples[entry][-1]
+            entry = examples[entry][:-1]
+            increment(weights, -eta, dirLoss(entry, y))
+
+    def classifier(example):
+        return sum(weight for weight in dotProduct(weights, example))
+
+    return classifier
+
+def plot_prices(prices, blocks):
+    xy = [(x,y) for (x,y) in sorted(prices.iteritems())][::50]   
+    g = Gnuplot.Gnuplot(persist=1)
     #g('set logscale y')
-    xy = [[(i, value[n]) for (i,(time, value)) in enumerate(sorted(M.iteritems()))] for n in range(6)]
-    g = [Gnuplot.Gnuplot(persist=1) for n in range(len(xy))]
-    for g1 in g:
-        g1('set pointsize 0.1')
+    g('set pointsize 0.1')
+    d1 = Gnuplot.Data(xy, with_='lp',title='Graph1') 
+    #d2 = Gnuplot.Data(blocks, with_='lp',title='Graph1') 
+    g.plot(d1)
+
+def plot(M, classifier):
+    xy = [x, y for x, y in sorted(M.iteritems())]
+    g = Gnuplot.Gnuplot(persist=1) 
+    g.('set pointsize 0.1')
 
     d = [Gnuplot.Data(xy[e], with_='lp',title='Graph' + str(e)) for e in range(len(xy))]
-    for (g1, d1) in zip(g, d):
-        g1.plot(d1)
+    for data in d:
+        g.plot(d)
 
+def writeToFile(M, filename):
+    with open(filename, "a+") as f:
+        for entry in M:
+            f.write(entry + ':' + sorted(M[entry].iteritems())+ '\n')
 
+def readFromFile(filename):
+    M = {}
+    with open(filename, 'r') as f:
+        for line in f:
+            contents = line.split(':')
+            M[contents[0]] = collections.Counter()
+            for entry in contents[1].split()
 
+def main():
+    filename = "info.out"
+    N = snap.TNEANet()
+    N.AddIntAttrE('value')
 
-  
+    M = {}
+    prices = get_prices_json('prices.json')
+    blockchain = get_blockchain_json('blockchain.json')
+    consider_prices = True
+    done = False
+    if not done:
+        for block in blockchain:
+            if consider_prices:
+                t = block[0] # adjust that price
+                if t in prices:
+                    add_to_network(N, block[1:])
+                    M[t] = network_properties(N,)
+                    M[t]['time'] = t #account for hour 
+                    M[t]['price'] = prices[t] # account for hour
+        #writeToFile(M, filename)
+
+    #M = readFromFile(filename)
+    numIters = 100
+    eta = 0.001   
+    classifier = SGD(eta, numIters, M)
+
+    plot(M, classifier)
 
 if __name__ == "__main__":
     main()
