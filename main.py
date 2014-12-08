@@ -82,7 +82,7 @@ def network_properties(n):
     # Avg Clust Coeff
     feature_set['clustering coefficient'] = snap.GetClustCf(n, -1)
     # Diam
-    feature_set['diameter'] = snap.GetBfsFullDiam(n, n.GetNodes()/10)
+    feature_set['diameter'] = snap.GetBfsFullDiam(n, n.GetNodes()/10 if n.GetNodes() >= 10 else n.GetNodes())
     # Size Nodes
     feature_set['nodes'] = n.GetNodes()
     # Size Wcc
@@ -141,9 +141,9 @@ def plot(M, classifier):
     g = Gnuplot.Gnuplot(persist=1) 
     g.('set pointsize 0.1')
 
-    d = [Gnuplot.Data(xy[e], with_='lp',title='Graph' + str(e)) for e in range(len(xy))]
+    d = [Gnuplot.Data(x, y[element], with_='lp',title= element) for element in y for x, y in xy]
     for data in d:
-        g.plot(d)
+        g.plot(data)
 
 def writeToFile(M, filename):
     with open(filename, "a+") as f:
@@ -177,9 +177,7 @@ def main():
                     M[t] = network_properties(N,)
                     M[t]['time'] = t #account for hour 
                     M[t]['price'] = prices[t] # account for hour
-        #writeToFile(M, filename)
 
-    #M = readFromFile(filename)
     numIters = 100
     eta = 0.001   
     classifier = SGD(eta, numIters, M)
