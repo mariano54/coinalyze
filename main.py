@@ -8,7 +8,7 @@ import math
 import sets
 import collections
 
-SKIP_NUM = 216
+SKIP_NUM = 144
 
 def get_coinbase_page(page_no, prices):
     print("here")
@@ -201,10 +201,7 @@ def SGD(eta, numIters, infile, outfile):
     return classifier
 
 def toString(entry):
-    result = ''
-    for e in sorted(entry.iteritems(), key=lambda x: x[0]):
-        result += str(e[1]) + '\t'
-    return result
+    return '\t'.join([str(e[1]) for e in sorted(entry.iteritems(), key=lambda x: x[0])])
 
 def status(item, blockn, mem, nt):
     return 'block #' + str(blockn) + ' entry:' + str(item) + ' mem_status:' + str(mem) + ' num_trans:' + str(nt -1)
@@ -220,10 +217,11 @@ def plot(M, classifier):
     for data in d:
         g.plot(data)
    """
+
 #@profile
 def main():
     properties_name = 'properties.out'
-    blockchain_name = 'blocks.json'
+    blockchain_name = 'blocks_full.json'
     weights_name = 'weights.json'
     prices_name = 'prices.json'
     plot_name = 'plot.out'
@@ -233,7 +231,7 @@ def main():
     prices = get_prices_json(prices_name)
     price_index = 0;
     done = False
-    nIters = 10000
+    nIters = 200000
     nodeids = {}
     properties = collections.Counter()
     if not done:
