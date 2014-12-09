@@ -8,7 +8,7 @@ import math
 import sets
 import collections
 
-SKIP_NUM = 144
+SKIP_NUM = 216
 
 def get_coinbase_page(page_no, prices):
     print("here")
@@ -157,7 +157,7 @@ def network_properties(n, block, feature_set, block_num):
     feature_set['added nodes'] = added_nodes
     # Avg Clust Coeff: no
     #-------------------
-    #feature_set['avg clust cf'] = prev_avg_cc
+    feature_set['avg clust cf'] = prev_avg_cc
     # Avg k: yes
     #--------------------
     feature_set['avg k'] = num_edges / (2.0*num_nodes)
@@ -189,11 +189,11 @@ def network_properties(n, block, feature_set, block_num):
     global prev_max_wcc
     # Size Wcc: n/a
     #--------------------
-    #if prev_max_wcc == 0 or block_num % SKIP_NUM == 1:
-    #    feature_set['wcc'] = snap.GetMxWcc(n).GetNodes()
-    #    prev_max_wcc = feature_set['wcc']
-    #else:
-    #    feature_set['wcc'] = prev_max_wcc
+    if prev_max_wcc == 0 or block_num % SKIP_NUM == 1:
+        feature_set['wcc'] = snap.GetMxWcc(n).GetNodes()
+        prev_max_wcc = feature_set['wcc']
+    else:
+        feature_set['wcc'] = prev_max_wcc
   
 def SGD(eta, numIters, infile, outfile):
     print 'intializing sgd'
@@ -245,7 +245,10 @@ def SGD(eta, numIters, infile, outfile):
     return classifier
 
 def toString(entry):
-    return '\t'.join([str(e[1]) for e in sorted(entry.iteritems(), key=lambda x: x[0])])
+    result = ''
+    for e in sorted(entry.iteritems(), key=lambda x: x[0]):
+        result += str(e[1]) + '\t'
+    return result
 
 def status(item, blockn, mem, nt):
     return 'block #' + str(blockn) + ' entry:' + str(item) + ' mem_status:' + str(mem) + ' num_trans:' + str(nt -1)
@@ -264,7 +267,7 @@ def plot(M, classifier):
 #@profile
 def main():
     properties_name = 'properties.out'
-    blockchain_name = 'blocks_full.json'
+    blockchain_name = 'blocks.json'
     weights_name = 'weights.json'
     prices_name = 'prices.json'
     plot_name = 'plot.out'
@@ -274,32 +277,32 @@ def main():
     prices = get_prices_json(prices_name)
     price_index = 0;
     done = False
-    nIters = 200000
+    nIters = 10000
     nodeids = {}
     properties = collections.Counter()
     if not done:
 	with open(blockchain_name, 'r') as blockchain:
 	    with open(properties_name, 'w') as out:
-                counter = 0
-                for line in blockchain:
-		    counter += 1
-		    block = json.loads(line)
-                    if len(block) == 1:
-                        continue
+            counter = 0
+            for line in blockchain:
+                counter += 1
+                block = json.loads(line)
+                if len(block) == 1:
+                    continue
      		    if price_index > nIters:
 	                break
-		    add_to_network(N, block[1:], nodeids)
-		    t = int(block[0])/1000
-		    if t < int(prices[0][0]):
-                        continue
-		    print status(price_index, counter, len(nodeids), len(block))
-            while t > int(prices[price_index+1][0]):
-                price_index += 1
-            network_properties(N, block[1:], properties, counter)
-            properties['time'] = int(t) 
-            properties['price'] = float(prices[price_index][1])
-	    out.write(str(prices[price_index][0]) + '\t' + toString(properties) + '\n')
-            properties.clear()
+                add_to_network(N, block[1:], nodeids)
+                t = int(block[0])/1000
+                if t < int(prices[0][0]):
+                    continue
+                print status(price_index, counter, len(nodeids), len(block))
+                while t > int(prices[price_index][0]):
+                    price_index += 1
+                network_properties(N, block[1:], properties, counter)
+                properties['time'] = int(t) 
+                properties['price'] = float(prices[price_index][1])
+    		    out.write(str(prices[price_index][0]) + '\t' + toString(properties) + '\n')
+                properties.clear()
 
     eta = 0.00000000001
     classifier_iters = 100
