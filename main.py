@@ -61,9 +61,10 @@ def add_to_network(n, block, nodeids):
     old_num_nodes = n.GetNodes()
     prev_neighbors_cc = 0
     new_neighbors_cc = 0
-    num_neighbors = 0
-    num_new_nodes = 0
     new_nodes_cc = 0
+    new_edges = []
+    new_nodes = set()
+    neighbors = set()
     for tx in block:
         transaction = tx.split('=')
         value = int(transaction[1])/100000000
@@ -71,47 +72,45 @@ def add_to_network(n, block, nodeids):
         outtx = parties[0]
         intx = parties[1]
 
-        e_id = 0
         if intx not in nodeids and outtx not in nodeids:
-            new_nodes_cc += 1
-            num_new_nodes += 2
             nodeids[intx] = n.AddNode()
             nodeids[outtx] = n.AddNode()
-            e_id = n.AddEdge(nodeids[intx], nodeids[outtx])
+            new_nodes.update([nodeids[intx], nodeids[outtx]])
+            new_edges.append((nodeids[intx], nodeids[outtx]))
         else:
             if intx in nodeids and outtx in nodeids:
                 a_neighbors = snap.TIntV()
                 b_neighbors = snap.TIntV()
                 snap.GetNodesAtHop(n, nodeids[intx], a_neighbors, 1, False)
                 snap.GetNodesAtHop(n, nodeids[outtx], b_neights, 1, False)
-                neighbors = set(nodeids[intx], nodeids[outtx])
+                neighbors.update([nodeids[intx], nodeids[outtx]])
                 neighbors.update(a_neighbors)
                 neighbors.update(b_neighbors)
-                for neighbor in neighbors:
-                    prev_neighbors_cc += snap.GetNodeClustCf(n, neighbor)
-                e_id = n.AddEdge(nodeids[intx], nodeids[outtx])
-                for neighbor in neighbors:
-                    new_neighbors_cc += snap.GetNodeClustCf(n, neighbor)
+                new_edges.append((nodeids[intx], nodeids[outtx]))
             if outtx in nodeids:
-                prev_neighbors_cc += snap.GetNodeClustCf(n, nodeids[outtx])
                 nodeids[intx] = n.AddNode()
-                e_id = n.AddEdge(nodeids[intx], nodeids[outtx])
-                new_neighbors_cc += snap.GetNodeClustCf(n, nodeids[outtx])
-                new_nodes_cc += snap.GetNodeClustCf(n, nodeids[intx])
-                num_new_nodes += 1
+                new_nodes.update([nodeids[intx]])
+                neighbors.update([nodeids[outtx]])
+                new_edges.append((nodeids[intx], nodeids[outtx]))
             if intx in nodeids:
-                prev_neighbors_cc += snap.GetNodeClustCf(n, nodeids[intx])
                 nodeids[outtx] = n.AddNode()
-                e_id = n.AddEdge(intx, outtx)
-                new_neighbors_cc += snap.GetNodeClustCf(n, nodeids[intx])
-                new_nodes_cc += snap.GetNodeClustCf(n, nodeids[outtx])
-                num_new_nodes += 1
+                new_nodes.update([nodeids[outtx]])
+                neighbors.update([nodeids[intx]])
+                new_edges.append((nodeids[intx], nodeids[outtx]))
+                
+        for neighbor in neighbors:
+            prev_neighbors_cc += snap.GetNodeClustCf(n, neighbor)
 
-        new_val = value + n.GetFltAttrDatE(e_id, 'value')
-        n.AddFltAttrDatE(e_id, new_val, 'value')
+        for to, fro in new_edges:
+            n.AddFltAttrDatE(n.AddEdge(to, fro), n.GetFltAttrDatE(e_id, 'value') + value, 'value')
+        
+        for neighbor in neighbors:
+            new_neighbors_cc += snap.GetNodeClustCf(n, neighbor)
 
-    added_nodes = num_new_nodes
-    prev_avg_cc = (prev_avg_cc*old_num_nodes - prev_neighbors_cc + new_neighbors_cc + num_new_nodes*new_nodes_cc)/float(n.GetNodes())
+        new_nodes_cc = sum(snap.GetNodeClustCf(node) for node in new_nodes)
+
+    added_nodes = len(new_nodes)
+    prev_avg_cc = (prev_avg_cc*old_num_nodes - prev_neighbors_cc + new_neighbors_cc + len(new_nodes)*new_nodes_cc)/float(n.GetNodes())
 
 def get_alphas(n):
     indegpairs = snap.TIntPrV()
