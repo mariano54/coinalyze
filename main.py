@@ -339,7 +339,8 @@ def main():
     price_index = 0;
     done = False
     nIters = 104000
-    nodeids = shelve.open("node_ids")
+    #nodeids = shelve.open("node_ids")
+    nodeids = {}
     properties = collections.Counter()
     if not done:
 	with open(blockchain_name, 'r') as blockchain:
