@@ -54,6 +54,15 @@ def get_blockchain_json(filename, start, end):
     return blockchain
 
 
+def getEdgeVal(node, g):
+    try:
+        val = g.GetFltAttrDatE(node, 'value')
+        if val < 0:
+            val = 0
+        return val
+    except:
+        return 0
+
 prev_avg_cc = 0
 added_nodes = 0
 #@profile
@@ -103,7 +112,7 @@ def add_to_network(n, block, nodeids):
 
         for to, fro in new_edges:
             ID = n.AddEdge(to, fro)
-            n.AddFltAttrDatE(ID, n.GetFltAttrDatE(ID, 'value') + value, 'value')
+            n.AddFltAttrDatE(ID, getEdgeVal(ID) + value, 'value')
         
         for neighbor in neighbors:
             new_neighbors_cc += snap.GetNodeClustCf(n, neighbor)
