@@ -8,6 +8,8 @@ import math
 import sets
 import collections
 
+SKIP_NUM = 216
+
 def get_coinbase_page(page_no, prices):
     print("here")
     r = requests.get('https://api.coinbase.com/v1/prices/historical?page='+ str(page_no))
@@ -35,27 +37,38 @@ def store_prices(prices):
 def get_prices_json(filename):
     with open(filename, "r") as f:
         prices = json.loads(f.read())
+    prices = sorted([(t,v) for t,v in prices.iteritems()], key=lambda x: x[0])
+    print 'loaded prices file'
     return prices
 
-def get_blockchain_json(filename):
-    with open(filename, 'r') as f:
-        blockchain = json.loads(f.read())
+def get_blockchain_json(filename, start, end):
+    blockchain = []
+    f = open(filename, 'r')
+    i = 0
+    for line in  f:
+        if i > end:
+            break
+	if i >= start:
+            blockchain.append(json.loads(line))
+    f.close()
     return blockchain
 
-def add_to_network(n, block):
-    # decode block
+#@profile
+def add_to_network(n, block, nodeids):
     for tx in block:
         transaction = tx.split('=')
-        value = transaction[1]
+        value = int(transaction[1])/100000000
         parties = transaction[0].split(':')
-        outtx = int(parties[0])
-        intx = int(parties[1])
-        if not n.IsNode(intx):
-            n.AddNode(intx)
-        if not n.IsNode(outtx):
-            n.AddNode(outtx)
-        aux = n.AddEdge(inttx, outtx)
-        n.AddIntAttrDatE(aux, value, 'value')
+        outtx = parties[0]
+        intx = parties[1]
+        if intx not in nodeids:
+            nodeids[intx] = n.AddNode()
+        if outtx not in nodeids:
+            nodeids[outtx] = n.AddNode()
+        intx = nodeids[intx]
+        outtx = nodeids[outtx]
+	
+        n.AddFltAttrDatE(n.AddEdge(intx, outtx), value, 'value')
 
 def get_alphas(n):
     indegpairs = snap.TIntPrV()
@@ -73,41 +86,84 @@ def get_alphas(n):
             a = snap.TInt(2)
             pair.Val1 = a
 
-    alphain = 1 + totalin*1.0/sum(math.log(pair.GetVal1())*pair.GetVal2() for pair in indegpairs)
-    alphaout = 1 + totalout*1.0/sum(math.log(pair.GetVal1())*pair.GetVal2() for pair in outdegpairs)
+    alphain = 1 + totalin*1.0/(1+sum(math.log(pair.GetVal1())*pair.GetVal2() for pair in indegpairs))
+    alphaout = 1 + totalout*1.0/(1+ sum(math.log(pair.GetVal1())*pair.GetVal2() for pair in outdegpairs))
     return (alphain, alphaout)
-    
-def network_properties(n):
-    feature_set = collections.Counter()
-    # Avg Clust Coeff
-    feature_set['clustering coefficient'] = snap.GetClustCf(n, -1)
-    # Diam
-    feature_set['diameter'] = snap.GetBfsFullDiam(n, n.GetNodes()/10 if n.GetNodes() >= 10 else n.GetNodes())
-    # Size Nodes
-    feature_set['nodes'] = n.GetNodes()
-    # Size Wcc
-    feature_set['max wcc'] = snap.GetMxWcc(n).GetNodes()
-    # MLE
-    alphas = get_alphas(n)
-    feature_set['in alpha'] = alphas[0]
-    feature_set['out alpha'] = alphas[1]
-    # Avg Tx value
-    feature_set['avg tx value'] = sum(n.GetIntAttrE(e, 'value') for e in range(n.GetEdges()))*1.0/n.GetEdges()
-    return feature_set
-  
-def SGD(eta, numIters, examples):
 
+prev_clust_coeff = 0
+prev_num_trans = 0
+prev_avg_trans_val = 0
+prev_total_trans_val = 0
+
+def get_avg_tx(block, num_nodes, num_edges):
+    global prev_num_trans
+    global prev_avg_trans_val
+    global prev_total_trans_val
+    new_total_trans_val = sum([int(t.split("=")[1]) for t in block]) / (100000000.0)
+    prev_avg_trans_val = ((prev_num_trans * prev_avg_trans_val) + new_total_trans_val) / float(prev_num_trans + len(block))
+    prev_num_trans += len(block)
+    prev_total_trans_val += new_total_trans_val
+
+prev_alphas = [0,0]
+prev_max_wcc = 0
+
+def network_properties(n, block, feature_set, block_num):
+    num_nodes = n.GetNodes()
+    num_edges = n.GetEdges()
+
+    # Avg Clust Coeff: no
+    #-------------------
+    #feature_set['clustering coefficient'] = snap.GetClustCf(n, -1)
+    # Avg k: yes
+    #--------------------
+    feature_set['avg k'] = num_edges / (2.0*num_nodes)
+    # Avg Tx value: yes
+    #--------------------
+    get_avg_tx(block, num_nodes, num_edges)
+    feature_set['avg tx value'] = prev_avg_trans_val
+    # Diam: no
+    #-------------------
+    #feature_set['diameter'] = snap.GetBfsFullDiam(n, n.GetNodes()/10 if n.GetNodes() >= 10 else n.GetNodes())
+    # Size Edges: yes
+    #--------------------
+    feature_set['edges'] = num_edges
+    # Size Nodes: yes
+    #-------------------
+    feature_set['nodes'] = num_nodes
+    # MLE: n/a
+    #--------------------
+    if prev_alphas == [0,0] or block_num % SKIP_NUM == 0:
+        alphas = get_alphas(n)
+        feature_set['mle in alpha'] = alphas[0]
+        feature_set['mle out alpha'] = alphas[1]
+        prev_alphas[0] = alphas[0]
+        prev_alphas[1] = alphas[1]
+    else:
+       feature_set['mle in alpha'] = prev_alphas[0]
+       feature_set['mle out alpha'] = prev_alphas[1]
+    
+    global prev_max_wcc
+    # Size Wcc: n/a
+    #--------------------
+    if prev_max_wcc == 0 or block_num % SKIP_NUM == 1:
+        feature_set['wcc'] = snap.GetMxWcc(n).GetNodes()
+        prev_max_wcc = feature_set['wcc']
+    else:
+        feature_set['wcc'] = prev_max_wcc
+  
+def SGD(eta, numIters, infile, outfile):
+    print 'intializing sgd'
     def dotProduct(d1, d2):
         if len(d1) < len(d2):
             return dotProduct(d2, d1)
         else:
-            return sum(d1.get(f, 0) * v for f, v in d2.items())
+	    return sum(d1[f] * d2[f] for f in d2)
 
     def increment(d1, scale, d2):
         for f, v in d2.items():
             d1[f] = d1.get(f, 0) + v * scale
 
-    def dirLoss(features, y):
+    def dirLoss(weights, features, y):
         dot_product = dotProduct(weights, features)
         residual = 2 * (dot_product - y)
         new_features = collections.Counter()
@@ -117,72 +173,98 @@ def SGD(eta, numIters, examples):
 
     weights = collections.Counter()
     for i in range(numIters):
-        for entry in examples:
-            y = examples[entry][-1]
-            entry = examples[entry][:-1]
-            increment(weights, -eta, dirLoss(entry, y))
+	print 'learner iteration #', i
+        with open(infile, 'r') as example_set:
+	    j = 0
+            for example in example_set:
+		j += 1
+  		if j == 10:
+		    break
+		if example[0] == '#':
+		    continue
+		example = example.split('\t')
+                y = float(example[1])
+                entry = collections.Counter()
+                for i,e in enumerate(example):
+		    if i > 1 and not e == '\n':
+			entry[str(i)] = float(e)	
+		grad = dirLoss(weights, entry, y)
+		increment(weights, -eta, grad)
+		print '\t', weights
+	print weights
+    with open(outfile, 'w+') as weights_file:
+	weights_file.write(json.dumps(dict(weights)))
 
     def classifier(example):
         return sum(weight for weight in dotProduct(weights, example))
 
     return classifier
 
-def plot_prices(prices, blocks):
-    xy = [(x,y) for (x,y) in sorted(prices.iteritems())][::50]   
-    g = Gnuplot.Gnuplot(persist=1)
-    #g('set logscale y')
-    g('set pointsize 0.1')
-    d1 = Gnuplot.Data(xy, with_='lp',title='Graph1') 
-    #d2 = Gnuplot.Data(blocks, with_='lp',title='Graph1') 
-    g.plot(d1)
+def toString(entry):
+    result = ''
+    for e in sorted(entry.iteritems(), key=lambda x: x[0]):
+        result += str(e[1]) + '\t'
+    return result
+
+def status(item, blockn, mem, nt):
+    return 'block #' + str(blockn) + ' entry:' + str(item) + ' mem_status:' + str(mem) + ' num_trans:' + str(nt -1)
 
 def plot(M, classifier):
-    xy = [x, y for x, y in sorted(M.iteritems())]
+    
+    """
+    xy = [(x,y) for x, y in sorted(M.iteritems())]
     g = Gnuplot.Gnuplot(persist=1) 
-    g.('set pointsize 0.1')
+    g('set pointsize 0.1')
 
     d = [Gnuplot.Data(x, y[element], with_='lp',title= element) for element in y for x, y in xy]
     for data in d:
         g.plot(data)
-
-def writeToFile(M, filename):
-    with open(filename, "a+") as f:
-        for entry in M:
-            f.write(entry + ':' + sorted(M[entry].iteritems())+ '\n')
-
-def readFromFile(filename):
-    M = {}
-    with open(filename, 'r') as f:
-        for line in f:
-            contents = line.split(':')
-            M[contents[0]] = collections.Counter()
-            for entry in contents[1].split()
-
+   """
+#@profile
 def main():
-    filename = "info.out"
-    N = snap.TNEANet()
-    N.AddIntAttrE('value')
+    properties_name = 'properties.out'
+    blockchain_name = 'blocks.json'
+    weights_name = 'weights.json'
+    prices_name = 'prices.json'
+    plot_name = 'plot.out'
+    N = snap.PNEANet.New()
 
     M = {}
-    prices = get_prices_json('prices.json')
-    blockchain = get_blockchain_json('blockchain.json')
-    consider_prices = True
+    prices = get_prices_json(prices_name)
+    price_index = 0;
     done = False
+    nIters = 10000
+    nodeids = {}
+    properties = collections.Counter()
     if not done:
-        for block in blockchain:
-            if consider_prices:
-                t = block[0] # adjust that price
-                if t in prices:
-                    add_to_network(N, block[1:])
-                    M[t] = network_properties(N,)
-                    M[t]['time'] = t #account for hour 
-                    M[t]['price'] = prices[t] # account for hour
+	with open(blockchain_name, 'r') as blockchain:
+	    with open(properties_name, 'w') as out:
+                counter = 0
+                for line in blockchain:
+		    counter += 1
+		    block = json.loads(line)
+                    if len(block) == 1:
+                        continue
+     		    if price_index > nIters:
+	                break
+		    add_to_network(N, block[1:], nodeids)
+		    t = int(block[0])/1000
+		    if t < int(prices[0][0]):
+			continue
+		    print status(price_index, counter, len(nodeids), len(block))
+                    while t > int(prices[price_index][0]):
+                        price_index += 1
+                    network_properties(N, block[1:], properties, counter)
+                    properties['time'] = int(t) 
+                    properties['price'] = float(prices[price_index][1])
+		    out.write(str(prices[price_index][0]) + '\t' + toString(properties) + '\n')
+                    properties.clear()
 
-    numIters = 100
-    eta = 0.001   
-    classifier = SGD(eta, numIters, M)
-
-    plot(M, classifier)
+    eta = 0.00000000001
+    classifier_iters = 100
+    #classifier = SGD(eta, classifier_iters, properties_name, weights_name)
+    # TODO: test classifier
+    # TODO: plot from file
 
 if __name__ == "__main__":
     main()
