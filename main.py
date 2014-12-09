@@ -7,8 +7,12 @@ import snap
 import math
 import sets
 import collections
+import time
+import shelve
 
 SKIP_NUM = 216
+SKIP_NUM_CC = 5160
+PRICE_INTERVAL = 1000
 
 def get_coinbase_page(page_no, prices):
     print("here")
@@ -74,53 +78,84 @@ def add_to_network(n, block, nodeids):
     new_edges = []
     new_nodes = set()
     neighbors = set()
+    global prev_avg_cc
+    global added_nodes
     for tx in block:
         transaction = tx.split('=')
         value = int(transaction[1])/100000000
         parties = transaction[0].split(':')
-        outtx = parties[0]
-        intx = parties[1]
-
+        outtx = parties[0].encode("utf-8")
+        intx = parties[1].encode("utf-8")
+        """
         if intx not in nodeids and outtx not in nodeids:
+            print 'nobody in'
             nodeids[intx] = n.AddNode()
             nodeids[outtx] = n.AddNode()
             new_nodes.update([nodeids[intx], nodeids[outtx]])
             new_edges.append((nodeids[intx], nodeids[outtx]))
         else:
             if intx in nodeids and outtx in nodeids:
+                print 'both in'
+                start = time.time()
                 a_neighbors = snap.TIntV()
                 b_neighbors = snap.TIntV()
-                snap.GetNodesAtHop(n, nodeids[intx], a_neighbors, 1, False)
-                snap.GetNodesAtHop(n, nodeids[outtx], b_neights, 1, False)
+                snap.GetNodesAtHop(n, nodeids[intx], 1, a_neighbors, False)
+                snap.GetNodesAtHop(n, nodeids[outtx], 1, b_neighbors, False)
                 neighbors.update([nodeids[intx], nodeids[outtx]])
                 neighbors.update(a_neighbors)
                 neighbors.update(b_neighbors)
                 new_edges.append((nodeids[intx], nodeids[outtx]))
+                print 'took', time.time() - start
             if outtx in nodeids:
+                print 'out in'
+                start = time.time()
                 nodeids[intx] = n.AddNode()
                 new_nodes.update([nodeids[intx]])
                 neighbors.update([nodeids[outtx]])
                 new_edges.append((nodeids[intx], nodeids[outtx]))
+                print 'took', time.time() - start
             if intx in nodeids:
+                print 'in in'
+                start = time.time()
                 nodeids[outtx] = n.AddNode()
                 new_nodes.update([nodeids[outtx]])
                 neighbors.update([nodeids[intx]])
                 new_edges.append((nodeids[intx], nodeids[outtx]))
-                
+                print 'took', time.time() - start
+        print 'iterations'
+        start = time.time()
+        print len(neighbors)
+        print len(neighbors)
         for neighbor in neighbors:
+            v = snap.TIntV()
+            snap.GetNodesAtHop(n, neighbor, 1 ,v, False)
+            print 'neighbors or neighbor', len(v)
             prev_neighbors_cc += snap.GetNodeClustCf(n, neighbor)
+            pass
+        print 'took1', time.time() - start
 
         for to, fro in new_edges:
             ID = n.AddEdge(to, fro)
-            n.AddFltAttrDatE(ID, getEdgeVal(ID) + value, 'value')
+            n.AddFltAttrDatE(ID, getEdgeVal(ID, n) + value, 'value')
+            pass
+        print 'took2', time.time() - start
         
         for neighbor in neighbors:
             new_neighbors_cc += snap.GetNodeClustCf(n, neighbor)
+            pass
 
-        new_nodes_cc = sum(snap.GetNodeClustCf(node) for node in new_nodes)
-
-    added_nodes = len(new_nodes)
-    prev_avg_cc = (prev_avg_cc*old_num_nodes - prev_neighbors_cc + new_neighbors_cc + len(new_nodes)*new_nodes_cc)/float(n.GetNodes())
+        print 'took3', time.time() - start
+        #new_nodes_cc = sum(snap.GetNodeClustCf(n, node) for node in new_nodes)
+        """
+        if intx not in nodeids:
+            nodeids[intx] = n.AddNode()
+        if outtx not in nodeids:
+            nodeids[outtx] = n.AddNode()
+        eid = n.AddEdge(nodeids[intx], nodeids[outtx])
+        n.AddFltAttrDatE(eid, getEdgeVal(eid, n) + value, 'value')
+    #added_nodes = len(new_nodes)
+    #prev_avg_cc = snap.GetClustCf(n)#(prev_avg_cc*old_num_nodes - prev_neighbors_cc + new_neighbors_cc + len(new_nodes)*new_nodes_cc)/float(n.GetNodes())
+    #print 'cc', prev_avg_cc
 
 def get_alphas(n):
     indegpairs = snap.TIntPrV()
@@ -159,6 +194,17 @@ def get_avg_tx(block, num_nodes, num_edges):
 prev_alphas = [0,0]
 prev_max_wcc = 0
 
+def get_avg_addr_balance(block):
+    seen = {}
+    for transaction in block:
+        if transaction not in seen:
+            v = snap.TIntV()
+            snap.GetNodesAtHop(n, neighbor, 1 ,v, False)
+            for neighbor in v:
+                pass
+
+    
+
 def network_properties(n, block, feature_set, block_num):
     num_nodes = n.GetNodes()
     num_edges = n.GetEdges()
@@ -166,8 +212,13 @@ def network_properties(n, block, feature_set, block_num):
     #-------------------
     feature_set['added nodes'] = added_nodes
     # Avg Clust Coeff: no
-    #-------------------
-    feature_set['avg clust cf'] = prev_avg_cc
+    #------------------
+    #if prev_avg_cc == 0 or block_num % SKIP_NUM_CC == 2:
+    #    global prev_avg_cc
+    #    feature_set['avg clust cf'] = snap.GetClustCf(n)
+    #    prev_avg_cc = feature_set['avg clust cf']
+    #else:
+    #    feature_set['avg clust cf'] = prev_avg_cc
     # Avg k: yes
     #--------------------
     feature_set['avg k'] = num_edges / (2.0*num_nodes)
@@ -196,14 +247,14 @@ def network_properties(n, block, feature_set, block_num):
        feature_set['mle in alpha'] = prev_alphas[0]
        feature_set['mle out alpha'] = prev_alphas[1]
     
-    global prev_max_wcc
+    #global prev_max_wcc
     # Size Wcc: n/a
     #--------------------
-    if prev_max_wcc == 0 or block_num % SKIP_NUM == 1:
-        feature_set['wcc'] = snap.GetMxWcc(n).GetNodes()
-        prev_max_wcc = feature_set['wcc']
-    else:
-        feature_set['wcc'] = prev_max_wcc
+    #if prev_max_wcc == 0 or block_num % SKIP_NUM == 1:
+    #    feature_set['wcc'] = snap.GetMxWcc(n).GetNodes()
+    #    prev_max_wcc = feature_set['wcc']
+    #else:
+    #    feature_set['wcc'] = prev_max_wcc
   
 def SGD(eta, numIters, infile, outfile):
     print 'intializing sgd'
@@ -277,7 +328,7 @@ def plot(M, classifier):
 #@profile
 def main():
     properties_name = 'properties.out'
-    blockchain_name = 'blocks.json'
+    blockchain_name = 'blocks_full.json'
     weights_name = 'weights.json'
     prices_name = 'prices.json'
     plot_name = 'plot.out'
@@ -287,32 +338,36 @@ def main():
     prices = get_prices_json(prices_name)
     price_index = 0;
     done = False
-    nIters = 10000
-    nodeids = {}
+    nIters = 104000
+    nodeids = shelve.open("node_ids")
     properties = collections.Counter()
     if not done:
 	with open(blockchain_name, 'r') as blockchain:
 	    with open(properties_name, 'w') as out:
-            counter = 0
-            for line in blockchain:
-                counter += 1
-                block = json.loads(line)
-                if len(block) == 1:
-                    continue
-     		    if price_index > nIters:
+                counter = 0
+                for line in blockchain:
+                    counter += 1
+                    #if counter < 100000:
+                    #    continue
+
+                    block = json.loads(line)
+                    if len(block) == 1:
+                        continue
+     	            if price_index > nIters:
 	                break
-                add_to_network(N, block[1:], nodeids)
-                t = int(block[0])/1000
-                if t < int(prices[0][0]):
-                    continue
-                print status(price_index, counter, len(nodeids), len(block))
-                while t > int(prices[price_index][0]):
-                    price_index += 1
-                network_properties(N, block[1:], properties, counter)
-                properties['time'] = int(t) 
-                properties['price'] = float(prices[price_index][1])
-    		    out.write(str(prices[price_index][0]) + '\t' + toString(properties) + '\n')
-                properties.clear()
+                    print status(price_index, counter, len(nodeids), len(block))
+                    add_to_network(N, block[1:], nodeids)
+                    t = int(block[0])/1000
+                    if t < int(prices[0][0]):
+                        continue
+                    while t > int(prices[price_index][0]):
+                        price_index += 1
+                    if len(prices) % (price_index + 1) == PRICE_INTERVAL: 
+                        network_properties(N, block[1:], properties, counter)
+                        properties['time'] = int(t) 
+                        properties['price'] = float(prices[price_index][1])
+                        out.write(str(prices[price_index][0]) + '\t' + toString(properties) + '\n')
+                        properties.clear()
 
     eta = 0.00000000001
     classifier_iters = 100
