@@ -53,22 +53,65 @@ def get_blockchain_json(filename, start, end):
     f.close()
     return blockchain
 
+
+prev_avg_cc = 0
+added_nodes = 0
 #@profile
 def add_to_network(n, block, nodeids):
+    old_num_nodes = n.GetNodes()
+    prev_neighbors_cc = 0
+    new_neighbors_cc = 0
+    num_neighbors = 0
+    num_new_nodes = 0
+    new_nodes_cc = 0
     for tx in block:
         transaction = tx.split('=')
         value = int(transaction[1])/100000000
         parties = transaction[0].split(':')
         outtx = parties[0]
         intx = parties[1]
-        if intx not in nodeids:
+
+        e_id = 0
+        if intx not in nodeids and outtx not in nodeids:
+            new_nodes_cc += 1
+            num_new_nodes += 2
             nodeids[intx] = n.AddNode()
-        if outtx not in nodeids:
             nodeids[outtx] = n.AddNode()
-        intx = nodeids[intx]
-        outtx = nodeids[outtx]
-	
-        n.AddFltAttrDatE(n.AddEdge(intx, outtx), value, 'value')
+            e_id = n.AddEdge(nodeids[intx], nodeids[outtx])
+        else:
+            if intx in nodeids and outtx in nodeids:
+                a_neighbors = snap.TIntV()
+                b_neighbors = snap.TIntV()
+                snap.GetNodesAtHop(n, nodeids[intx], a_neighbors, 1, False)
+                snap.GetNodesAtHop(n, nodeids[outtx], b_neights, 1, False)
+                neighbors = set(nodeids[intx], nodeids[outtx])
+                neighbors.update(a_neighbors)
+                neighbors.update(b_neighbors)
+                for neighbor in neighbors:
+                    prev_neighbors_cc += snap.GetNodeClustCf(n, neighbor)
+                e_id = n.AddEdge(nodeids[intx], nodeids[outtx])
+                for neighbor in neighbors:
+                    new_neighbors_cc += snap.GetNodeClustCf(n, neighbor)
+            if outtx in nodeids:
+                prev_neighbors_cc += snap.GetNodeClustCf(n, nodeids[outtx])
+                nodeids[intx] = n.AddNode()
+                e_id = n.AddEdge(nodeids[intx], nodeids[outtx])
+                new_neighbors_cc += snap.GetNodeClustCf(n, nodeids[outtx])
+                new_nodes_cc += snap.GetNodeClustCf(n, nodeids[intx])
+                num_new_nodes += 1
+            if intx in nodeids:
+                prev_neighbors_cc += snap.GetNodeClustCf(n, nodeids[intx])
+                nodeids[outtx] = n.AddNode()
+                e_id = n.AddEdge(intx, outtx)
+                new_neighbors_cc += snap.GetNodeClustCf(n, nodeids[intx])
+                new_nodes_cc += snap.GetNodeClustCf(n, nodeids[outtx])
+                num_new_nodes += 1
+
+        new_val = value + n.GetFltAttrDatE(e_id, 'value')
+        n.AddFltAttrDatE(e_id, new_val, 'value')
+
+    added_nodes = num_new_nodes
+    prev_avg_cc = (prev_avg_cc*old_num_nodes - prev_neighbors_cc + new_neighbors_cc + num_new_nodes*new_nodes_cc)/float(n.GetNodes())
 
 def get_alphas(n):
     indegpairs = snap.TIntPrV()
@@ -110,10 +153,12 @@ prev_max_wcc = 0
 def network_properties(n, block, feature_set, block_num):
     num_nodes = n.GetNodes()
     num_edges = n.GetEdges()
-
+    # Added nodes
+    #-------------------
+    feature_set['added nodes'] = added_nodes
     # Avg Clust Coeff: no
     #-------------------
-    #feature_set['clustering coefficient'] = snap.GetClustCf(n, -1)
+    feature_set['avg clust cf'] = prev_avg_cc
     # Avg k: yes
     #--------------------
     feature_set['avg k'] = num_edges / (2.0*num_nodes)
@@ -210,7 +255,6 @@ def status(item, blockn, mem, nt):
     return 'block #' + str(blockn) + ' entry:' + str(item) + ' mem_status:' + str(mem) + ' num_trans:' + str(nt -1)
 
 def plot(M, classifier):
-    
     """
     xy = [(x,y) for x, y in sorted(M.iteritems())]
     g = Gnuplot.Gnuplot(persist=1) 
@@ -220,6 +264,7 @@ def plot(M, classifier):
     for data in d:
         g.plot(data)
    """
+
 #@profile
 def main():
     properties_name = 'properties.out'
@@ -250,13 +295,13 @@ def main():
 		    add_to_network(N, block[1:], nodeids)
 		    t = int(block[0])/1000
 		    if t < int(prices[0][0]):
-			continue
+                continue
 		    print status(price_index, counter, len(nodeids), len(block))
-                    while t > int(prices[price_index][0]):
-                        price_index += 1
-                    network_properties(N, block[1:], properties, counter)
-                    properties['time'] = int(t) 
-                    properties['price'] = float(prices[price_index][1])
+            while t > int(prices[price_index][0]):
+                price_index += 1
+            network_properties(N, block[1:], properties, counter)
+            properties['time'] = int(t) 
+            properties['price'] = float(prices[price_index][1])
 		    out.write(str(prices[price_index][0]) + '\t' + toString(properties) + '\n')
                     properties.clear()
 
