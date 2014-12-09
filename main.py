@@ -153,7 +153,7 @@ def add_to_network(n, block, nodeids):
         if outtx not in nodeids:
             nodeids[outtx] = n.AddNode()
         ccfs[nodeids[intx]] = snap.GetNodeClustCf(n, nodeids[intx])
-        ccfs[nodeids[outtx]] = snap.GetNodeClustCf(n, nodeids[outtx)
+        ccfs[nodeids[outtx]] = snap.GetNodeClustCf(n, nodeids[outtx])
         eid = n.AddEdge(nodeids[intx], nodeids[outtx])
         n.AddFltAttrDatE(eid, getEdgeVal(eid, n) + value, 'value')
     prev_avg_cc = sum(ccfs[i] for i in ccfs)/float(len(ccfs))
@@ -222,7 +222,7 @@ def network_properties(n, block, feature_set, block_num):
     #    feature_set['avg clust cf'] = snap.GetClustCf(n)
     #    prev_avg_cc = feature_set['avg clust cf']
     #else:
-    #    feature_set['avg clust cf'] = prev_avg_cc
+    feature_set['avg clust cf'] = prev_avg_cc
     # Avg k: yes
     #--------------------
     feature_set['avg k'] = num_edges / (2.0*num_nodes)
