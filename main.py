@@ -152,11 +152,13 @@ def add_to_network(n, block, nodeids):
             nodeids[intx] = n.AddNode()
         if outtx not in nodeids:
             nodeids[outtx] = n.AddNode()
-        ccfs[nodeids[intx]] = snap.GetNodeClustCf(n, nodeids[intx])
-        ccfs[nodeids[outtx]] = snap.GetNodeClustCf(n, nodeids[outtx)
+        new_nodes.update([nodeids[intx], nodeids[outtx]])
         eid = n.AddEdge(nodeids[intx], nodeids[outtx])
         n.AddFltAttrDatE(eid, getEdgeVal(eid, n) + value, 'value')
         n.AddFltAttrDatE(eid, str(nodeids[intx]) + ':' + str(nodeids[outtx]), 'dir')
+    
+    for node in new_nodes:
+        ccfs[node] = snap.GetNodeClustCf(n, node)
     prev_avg_cc = sum(ccfs[i] for i in ccfs)/float(len(ccfs))
     #added_nodes = len(new_nodes)
     #prev_avg_cc = snap.GetClustCf(n)#(prev_avg_cc*old_num_nodes - prev_neighbors_cc + new_neighbors_cc + len(new_nodes)*new_nodes_cc)/float(n.GetNodes())
