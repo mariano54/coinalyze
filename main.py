@@ -102,7 +102,8 @@ def add_to_network(n, block, nodeids):
             prev_neighbors_cc += snap.GetNodeClustCf(n, neighbor)
 
         for to, fro in new_edges:
-            n.AddFltAttrDatE(n.AddEdge(to, fro), n.GetFltAttrDatE(e_id, 'value') + value, 'value')
+            ID = n.AddEdge(to, fro)
+            n.AddFltAttrDatE(ID, n.GetFltAttrDatE(ID, 'value') + value, 'value')
         
         for neighbor in neighbors:
             new_neighbors_cc += snap.GetNodeClustCf(n, neighbor)
