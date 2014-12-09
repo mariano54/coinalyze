@@ -294,7 +294,7 @@ def main():
 		    if t < int(prices[0][0]):
                         continue
 		    print status(price_index, counter, len(nodeids), len(block))
-            while t > int(prices[price_index][0]):
+            while t > int(prices[price_index+1][0]):
                 price_index += 1
             network_properties(N, block[1:], properties, counter)
             properties['time'] = int(t) 
